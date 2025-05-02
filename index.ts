@@ -6,7 +6,12 @@ import { createFSEQHeader, writeFSEQHeader } from "./frame.ts";
 
 const logger = new Logger();
 
+// if programs have an unspecified number of frames they want to run for
 const DEFAULT_FRAME_COUNT = 1000;
+const FRAME_MS = 50;
+// number of frames each .fseq file gets before sending: this is the FPS * 10 (10 seconds of frames) 
+const SEQUENCE_FRAME_COUNT = (1000 / FRAME_MS) * 10;
+const PIXELS = 500;
 
 function executeProgram(programName: string): Deno.ChildProcess {
   const command = new Deno.Command(
@@ -30,34 +35,40 @@ const programs = parse(await Deno.readTextFile("./programs/index.csv"), {
 
 logger.info(`Found ${programs.length} programs.`);
 
-await Deno.remove("./sequences", { recursive: true });
+await Deno.stat("./sequences").then(() => Deno.remove("./sequences", { recursive: true })).catch((...args) => void args)
 await Deno.mkdir("./sequences", { recursive: true });
 
 logger.info("Refreshing sequences...");
 
-const FRAME_MS = 50;
-const SEQUENCE_FRAME_COUNT = 20 * 10;
-const PIXELS = 500;
+interface SequenceFile {
+  file: Deno.FsFile;
+  path: string;
+}
 
-async function createSequenceFile(): Promise<Deno.FsFile> {
+async function createSequenceFile(): Promise<SequenceFile> {
   const header = createFSEQHeader(FRAME_MS, SEQUENCE_FRAME_COUNT, PIXELS);
-  const file = await Deno.create(`./sequences/${new Date().getTime()}.fseq`);
+  const path = `./sequences/${new Date().getTime()}.fseq`;
+  const file = await Deno.create(path);
   const writer = file.writable.getWriter();
 
   writeFSEQHeader(header, writer);
 
   writer.releaseLock();
 
-  return file;
+  return { path, file };
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(() => resolve(), ms));
 }
 
+async function onFileDone({ file, path }: SequenceFile) {
+  
+}
+
 let currentFrame = 0;
-let currentSequenceFileWriter = (await createSequenceFile()).writable
-  .getWriter();
+let currentSequence = await createSequenceFile()
+let currentSequenceFileWriter = currentSequence.file.writable.getWriter();
 
 async function readReader(
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -87,10 +98,14 @@ while (true) {
       if (currentFrame > SEQUENCE_FRAME_COUNT) {
         throw Error("uh oh!");
       } else if (currentFrame == SEQUENCE_FRAME_COUNT) {
+        // teardown
+        currentSequenceFileWriter.releaseLock();
+        onFileDone(currentSequence)
+
         logger.debug("Creating new sequence file.");
         currentFrame = 0;
-        currentSequenceFileWriter = (await createSequenceFile()).writable
-          .getWriter();
+        currentSequence = await createSequenceFile();
+        currentSequenceFileWriter = currentSequence.file.writable.getWriter();
       }
     }
 
