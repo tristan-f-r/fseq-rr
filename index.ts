@@ -78,7 +78,8 @@ async function readReader(
 }
 
 while (true) {
-  for (const program of programs) {
+  program: for (const program of programs) {
+    logger.debug("Looking through program", program.name)
     const writer = program.child.stdin.getWriter();
     const reader = program.child.stderr.getReader();
 
@@ -88,7 +89,9 @@ while (true) {
       await writer.write(FRAME_MESSAGE);
       const packet = await readReader(reader);
       if (packet.length !== 1500) {
-        throw new Error("uh oh!");
+        const decoder = new TextDecoder();
+        logger.warn(`packet.length = ${packet.length} != 1500. Going to next program. Decoded packet :=${decoder.decode(packet)}`);
+        continue program;
       }
 
       currentSequenceFileWriter.write(packet);
@@ -96,7 +99,8 @@ while (true) {
       currentFrame++;
 
       if (currentFrame > SEQUENCE_FRAME_COUNT) {
-        throw Error("uh oh!");
+        // TODO: recovery from this?
+        throw Error(`uh oh! ${SEQUENCE_FRAME_COUNT} < ${currentFrame}!! this shouldn't happen and is bad`);
       } else if (currentFrame == SEQUENCE_FRAME_COUNT) {
         // teardown
         currentSequenceFileWriter.releaseLock();
