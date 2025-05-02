@@ -1,5 +1,6 @@
 {
   "tasks": {
-    "light": "deno run --allow-read=. --allow-write=. --allow-run index.ts"
+    "light": "deno run --allow-read=. --allow-write=. --allow-run index.ts",
+    "fseq": "deno run --allow-read=. --allow-run toSequence.ts"
   }
 }
